@@ -2,7 +2,7 @@
 Author: washing1127
 Date: 2024-11-09 23:34:30
 LastEditors: washing1127
-LastEditTime: 2024-11-10 00:08:23
+LastEditTime: 2024-11-13 10:46:43
 FilePath: /llms_step_by_step/step00_transformer/models/translate_model.py
 Description: 
 '''
@@ -11,8 +11,8 @@ import torch
 import torch.nn as nn
 
 from torch.nn import Transformer
+from .my_transformer import MyTransformer
 
-from data import PAD_IDX
 from utils import PositionEncoding
 
 class TokenEmbedding(nn.Module):
@@ -31,10 +31,9 @@ class TranslateModel(nn.Module):
         self.tgt_embedder = TokenEmbedding(tgt_vocab_size, d_model)
         self.pos_encoder = PositionEncoding(d_model, dropout, max_seq_len)
         if which_model.lower() == "official":
-            self.transformer = Transformer()
+            self.transformer = Transformer(batch_first=True)
         elif which_model.lower() == "myself":
-            print("myself 还没实现")
-            exit()
+            self.transformer = MyTransformer()
         else:
             raise ValueError("param: which_model should in ['official', 'myself'].")
         self.classifier = nn.Linear(d_model, tgt_vocab_size)
@@ -48,16 +47,12 @@ class TranslateModel(nn.Module):
         tgt_embed = self.tgt_embedder(tgt)
         tgt_embed = self.pos_encoder(tgt_embed)
 
-        src_mask, tgt_mask, src_pad_mask, tgt_pad_mask = self._create_mask(src, tgt)
+        tgt_mask = self._create_mask(tgt)
 
         outs = self.transformer(
             src=src_embed,
             tgt=tgt_embed,
-            src_mask=src_mask,
-            tgt_mask=tgt_mask,
-            src_key_padding_mask=src_pad_mask,
-            tgt_key_padding_mask=tgt_pad_mask,
-            memory_key_padding_mask=src_pad_mask
+            tgt_mask=tgt_mask
         )
 
         logits = self.classifier(outs)
@@ -68,14 +63,9 @@ class TranslateModel(nn.Module):
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
 
-    def _create_mask(self, src, tgt):
-        device = src.device
-        src_seq_len = src.shape[0]
-        tgt_seq_len = tgt.shape[0]
+    def _create_mask(self, tgt):
+        device = tgt.device
+        tgt_seq_len = tgt.shape[1]
         tgt_mask = (torch.triu(torch.ones((tgt_seq_len, tgt_seq_len), device=device)) == 1).transpose(0, 1)
         tgt_mask = tgt_mask.float().masked_fill(tgt_mask == 0, float("-inf")).masked_fill(tgt_mask == 1, float(0.0))
-        src_mask = torch.zeros((src_seq_len, src_seq_len), device=device).type(torch.bool)
-        src_pad_mask = (src == PAD_IDX).transpose(0, 1)
-        tgt_pad_mask = (tgt == PAD_IDX).transpose(0, 1)
-        return src_mask, tgt_mask, src_pad_mask, tgt_pad_mask
-
+        return tgt_mask

@@ -2,7 +2,7 @@
 Author: washing1127
 Date: 2024-11-09 23:34:30
 LastEditors: washing1127
-LastEditTime: 2024-11-10 00:26:53
+LastEditTime: 2024-11-13 10:45:41
 FilePath: /llms_step_by_step/step00_transformer/main.py
 Description: 
 '''
@@ -16,6 +16,8 @@ from data import *
 from models import TranslateModel
 from utils import Schedule, logger
 
+torch.manual_seed(1949)
+
 def train(model, device, model_save_path, save_model=False):
     loss_fn = nn.CrossEntropyLoss()
     optim = torch.optim.Adam(model.parameters(), lr=0.)
@@ -25,12 +27,12 @@ def train(model, device, model_save_path, save_model=False):
         model.train()
         epoch_loss = 0
         for step, (src, tgt) in enumerate(dataloader):
-            src = torch.tensor(src).transpose(0, 1)
-            tgt = torch.tensor(tgt).transpose(0, 1)
+            src = torch.tensor(src)#.transpose(0, 1)
+            tgt = torch.tensor(tgt)#.transpose(0, 1)
             src = src.to(device)
             tgt = tgt.to(device)
-            tgt_input = tgt[:-1, :]
-            tgt_output = tgt[1:, :]
+            tgt_input = tgt[:, : -1]
+            tgt_output = tgt[:, 1:]
             out = model(src, tgt_input)
             optim.zero_grad()
             loss = loss_fn(out.reshape(-1, out.shape[-1]), tgt_output.reshape(-1))
@@ -57,26 +59,29 @@ def test(model, device, sentence: list=None):
         logger.info("英文：" + src)
         logger.info("德文：" + tgt)
         src_tokens = sequence2token(src.split(" "), src_token2id)
-        src_tokens = torch.tensor(src_tokens).unsqueeze(1).to(device)
+        src_tokens = torch.tensor(src_tokens).unsqueeze(0).to(device)
         src_embed = model.src_embedder(src_tokens)
         src_embed = model.pos_encoder(src_embed)
         memory = model.transformer.encoder(src_embed)
         ans = torch.ones(1, 1).fill_(BOS_IDX).type(torch.long).to(device)
-        for i in range(len(src_tokens) + 5):
+        for i in range(src_tokens.size(1) + 5):
             tgt_embed = model.tgt_embedder(ans)
             tgt_embed = model.pos_encoder(tgt_embed)
             tgt_out = model.transformer.decoder(tgt_embed, memory)
-            tgt_out = tgt_out.transpose(0, 1)
+            #tgt_out = tgt_out.transpose(0, 1)
             prob = model.classifier(tgt_out[:, -1])
             _, next_word = torch.max(prob, dim=1)
             if next_word.item() == EOS_IDX:
                 break
-            ans = torch.cat([ans, torch.ones(1, 1).type_as(src_tokens.data).fill_(next_word.item())], dim=0)
+            ans = torch.cat([ans, torch.ones(1, 1).type_as(src_tokens.data).fill_(next_word.item())], dim=1)
         logger.info("模型输出：" + token2sequence(ans.flatten().tolist(), tgt_id2token))
 
 if __name__ == "__main__":
     
-    which_model = "official"
+    # which_model = "official"
+    which_model = "myself"
+    save_model = False
+
     model_save_path = f"./model_{which_model}.pkl"
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -91,6 +96,6 @@ if __name__ == "__main__":
     model = model.to(device)
 
     # 训练
-    train(model, device, model_save_path, save_model=True)
+    train(model, device, model_save_path, save_model=save_model)
     # 推理
-    test(model, device)
+    # test(model, device)
